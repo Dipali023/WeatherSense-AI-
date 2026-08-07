@@ -17,7 +17,7 @@
 // Auto-detect: local dev uses Flask at localhost:5000, GitHub Pages uses Render
 const API = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? ''   // Flask serves frontend + API on same origin locally
-  : 'https://weathersense-ai-backend.onrender.com'; // Render.com backend for GitHub Pages
+  : 'https://weathersense-ai-0vor.onrender.com'; // Render backend URL
 const REFRESH_MS = 30000; // Auto-refresh every 30 seconds
 
 let currentCity = 'nagpur';
