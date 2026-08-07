@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WeatherSense AI — Real-Time Weather Intelligence</title>
+  <meta name="description" content="Full-stack AI weather monitoring system with real Python backend, scikit-learn ML models, SQLite database, and live Open-Meteo API data." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="particles" id="particles"></div>
+  <div class="bg-glow glow-1"></div>
+  <div class="bg-glow glow-2"></div>
+
+  <!-- Loading Overlay -->
+  <div class="ai-overlay" id="aiOverlay">
+    <div class="ai-loader">
+      <div class="ai-brain">🧠</div>
+      <div class="ai-bars">
+        <div class="ai-bar"></div><div class="ai-bar"></div><div class="ai-bar"></div>
+        <div class="ai-bar"></div><div class="ai-bar"></div>
+      </div>
+      <p>Connecting to Python Backend…</p>
+      <span id="aiLoadMsg">Fetching live weather from Open-Meteo API</span>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">🌦️</div>
+      <div class="logo-text">
+        <span class="logo-main">WeatherSense <span class="ai-tag">AI</span></span>
+        <span class="logo-sub">Real Backend · scikit-learn · SQLite</span>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active"   onclick="showSection('dashboard',this);return false;"><span class="nav-icon">📊</span><span>Dashboard</span></a>
+      <a href="#" class="nav-item"          onclick="showSection('aiml',this);return false;"><span class="nav-icon">🤖</span><span>AI/ML Engine</span><span class="nav-new">REAL</span></a>
+      <a href="#" class="nav-item"          onclick="showSection('forecast',this);return false;"><span class="nav-icon">🔮</span><span>7-Day Forecast</span></a>
+      <a href="#" class="nav-item"          onclick="showSection('health',this);return false;"><span class="nav-icon">🏥</span><span>Health Advisory</span></a>
+      <a href="#" class="nav-item"          onclick="showSection('anomaly',this);return false;"><span class="nav-icon">⚠️</span><span>Anomaly Detect</span><span class="nav-new">AI</span></a>
+      <a href="#" class="nav-item"          onclick="showSection('alerts',this);return false;"><span class="nav-icon">🚨</span><span>Smart Alerts</span><span class="badge" id="alertBadge">0</span></a>
+      <a href="#" class="nav-item"          onclick="showSection('db',this);return false;"><span class="nav-icon">🗄️</span><span>Database</span><span class="nav-new">LIVE</span></a>
+    </nav>
+    <div class="sidebar-ai-status glass-dark">
+      <div class="ai-status-row"><span class="sdot" id="dot-backend" style="background:#555"></span><span>Flask Backend</span></div>
+      <div class="ai-status-row"><span class="sdot" id="dot-api"     style="background:#555"></span><span>Open-Meteo API</span></div>
+      <div class="ai-status-row"><span class="sdot" id="dot-ml"      style="background:#555"></span><span>scikit-learn ML</span></div>
+      <div class="ai-status-row"><span class="sdot" id="dot-db"      style="background:#555"></span><span>SQLite Database</span></div>
+    </div>
+    <div class="sidebar-status">
+      <div class="status-dot" id="connectionDot"></div>
+      <span id="connectionText">Connecting…</span>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content" id="mainContent">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="menu-btn" onclick="toggleSidebar()" aria-label="Toggle sidebar">☰</button>
+        <div class="page-info">
+          <h1 class="page-title" id="pageTitle">Dashboard Overview</h1>
+          <span class="breadcrumb" id="breadcrumb">Home / Dashboard</span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button class="geo-btn" onclick="detectGPSLocation()" id="geoBtn" title="Auto-detect GPS location">📍 GPS</button>
+        <select class="city-select" id="citySelect" onchange="onCityChange()">
+          <option value="nagpur">Nagpur, Maharashtra</option>
+          <option value="mumbai">Mumbai, Maharashtra</option>
+          <option value="pune">Pune, Maharashtra</option>
+          <option value="delhi">Delhi, India</option>
+          <option value="bangalore">Bengaluru, Karnataka</option>
+          <option value="chennai">Chennai, Tamil Nadu</option>
+          <option value="kolkata">Kolkata, West Bengal</option>
+          <option value="hyderabad">Hyderabad, Telangana</option>
+          <option value="ahmedabad">Ahmedabad, Gujarat</option>
+          <option value="jaipur">Jaipur, Rajasthan</option>
+          <option value="lucknow">Lucknow, Uttar Pradesh</option>
+          <option value="patna">Patna, Bihar</option>
+          <option value="guwahati">Guwahati, Assam</option>
+          <option value="srinagar">Srinagar, J&K</option>
+          <option value="chandigarh">Chandigarh, India</option>
+        </select>
+        <div class="time-badge">
+          <span id="liveTime">--:--:--</span>
+        </div>
+        <button class="refresh-btn" onclick="refreshAll()" id="refreshBtn" title="Refresh all data">⟳</button>
+      </div>
+    </header>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- DASHBOARD SECTION                                  -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="section active" id="section-dashboard">
+      <!-- Backend Badge -->
+      <div class="backend-badge glass-dark">
+        <span class="bb-dot"></span>
+        <span>Real Flask Backend · <b id="dbCount">—</b> readings in SQLite · Auto-refresh every 30s</span>
+        <span class="bb-source">Source: Open-Meteo API via Python</span>
+      </div>
+
+      <!-- Primary Weather Cards -->
+      <div class="cards-grid">
+        <div class="weather-card card-temp glass">
+          <div class="card-icon">🌡️</div>
+          <div class="card-label">Temperature</div>
+          <div class="card-value" id="mainTemp">—</div>
+          <div class="card-sub">Feels like <span id="feelsLike">—</span></div>
+          <div class="card-trend" id="tempTrend"></div>
+        </div>
+        <div class="weather-card card-hum glass">
+          <div class="card-icon">💧</div>
+          <div class="card-label">Humidity</div>
+          <div class="card-value" id="mainHum">—</div>
+          <div class="card-sub">Relative humidity</div>
+        </div>
+        <div class="weather-card card-wind glass">
+          <div class="card-icon">💨</div>
+          <div class="card-label">Wind Speed</div>
+          <div class="card-value" id="mainWind">—</div>
+          <div class="card-sub">Direction: <span id="windDir">—</span>°</div>
+        </div>
+        <div class="weather-card card-press glass">
+          <div class="card-icon">📊</div>
+          <div class="card-label">Pressure</div>
+          <div class="card-value" id="mainPress">—</div>
+          <div class="card-sub">Surface pressure</div>
+        </div>
+        <div class="weather-card card-rain glass">
+          <div class="card-icon">🌧️</div>
+          <div class="card-label">Precipitation</div>
+          <div class="card-value" id="mainRain">—</div>
+          <div class="card-sub">Current reading</div>
+        </div>
+        <div class="weather-card card-uv glass">
+          <div class="card-icon">☀️</div>
+          <div class="card-label">UV Index</div>
+          <div class="card-value" id="mainUV">—</div>
+          <div class="card-sub" id="uvLabel">—</div>
+        </div>
+      </div>
+
+      <!-- System Info Row -->
+      <div class="info-row">
+        <div class="info-chip glass-dark"><span>🏙️</span> <span id="cityName">—</span></div>
+        <div class="info-chip glass-dark"><span>🌐</span> WMO Code: <span id="wmoCode">—</span></div>
+        <div class="info-chip glass-dark"><span>⏱️</span> Last fetched: <span id="lastFetch">—</span></div>
+        <div class="info-chip glass-dark"><span>🗄️</span> DB rows: <span id="dbCount2">—</span></div>
+        <div class="info-chip glass-dark"><span>🔬</span> Source: Open-Meteo API</div>
+      </div>
+
+      <!-- Charts Row -->
+      <div class="charts-row">
+        <div class="chart-card glass">
+          <div class="chart-header">
+            <span class="chart-title">Temperature History (Real DB Data)</span>
+            <span class="chart-badge">SQLite → Chart.js</span>
+          </div>
+          <canvas id="tempHistChart" height="90"></canvas>
+        </div>
+        <div class="chart-card glass">
+          <div class="chart-header">
+            <span class="chart-title">Humidity History</span>
+            <span class="chart-badge">Real API</span>
+          </div>
+          <canvas id="humHistChart" height="90"></canvas>
+        </div>
+      </div>
+
+      <!-- Hourly Timeline Chart — full width -->
+      <div class="charts-row charts-row-full" style="margin-top:0.9rem">
+        <div class="chart-card glass" style="grid-column: 1 / -1">
+          <div class="chart-header">
+            <span class="chart-title">⏱️ 24-Hour Hourly Forecast — Temperature &amp; Rain Probability</span>
+            <span class="chart-badge" style="background:rgba(163,112,255,0.12);color:#a370ff;border-color:rgba(163,112,255,0.3)">Open-Meteo Hourly API</span>
+          </div>
+          <canvas id="hourlyChart" height="90"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- AI/ML ENGINE SECTION                               -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="section" id="section-aiml">
+      <div class="backend-badge glass-dark">
+        <span class="bb-dot"></span>
+        <span>Real scikit-learn models trained on SQLite historical data</span>
+        <span class="bb-source">sklearn.linear_model · sklearn.ensemble</span>
+      </div>
+
+      <div class="ml-grid">
+        <!-- Linear Regression Panel -->
+        <div class="ml-card glass">
+          <div class="ml-card-header">
+            <span class="ml-icon">📈</span>
+            <div>
+              <div class="ml-title">Linear Regression</div>
+              <div class="ml-subtitle">sklearn.linear_model.LinearRegression</div>
+            </div>
+            <span class="ml-badge" id="lrStatus">—</span>
+          </div>
+          <div class="ml-metrics">
+            <div class="metric-box"><div class="metric-label">R² Score</div><div class="metric-val" id="lrR2">—</div></div>
+            <div class="metric-box"><div class="metric-label">RMSE</div><div class="metric-val" id="lrRMSE">—</div></div>
+            <div class="metric-box"><div class="metric-label">Training Samples</div><div class="metric-val" id="lrSamples">—</div></div>
+          </div>
+          <div class="prediction-row">
+            <div class="pred-box"><div class="pred-label">+1h Temp</div><div class="pred-val" id="pred1h">—</div></div>
+            <div class="pred-box"><div class="pred-label">+2h Temp</div><div class="pred-val" id="pred2h">—</div></div>
+            <div class="pred-box"><div class="pred-label">+3h Temp</div><div class="pred-val" id="pred3h">—</div></div>
+          </div>
+          <div class="coeff-section">
+            <div class="coeff-title">Model Coefficients</div>
+            <div id="lrCoefficients" class="coeff-list">—</div>
+          </div>
+          <button class="ml-btn" onclick="runMLPredict()">▶ Re-train & Predict</button>
+        </div>
+
+        <!-- Random Forest Panel -->
+        <div class="ml-card glass">
+          <div class="ml-card-header">
+            <span class="ml-icon">🌲</span>
+            <div>
+              <div class="ml-title">Random Forest Classifier</div>
+              <div class="ml-subtitle">sklearn.ensemble.RandomForestClassifier (100 trees)</div>
+            </div>
+            <span class="ml-badge" id="rfStatus">—</span>
+          </div>
+          <div class="rf-condition glass-dark">
+            <div class="rfc-label">Predicted Condition</div>
+            <div class="rfc-value" id="rfCondition">—</div>
+            <div class="rfc-sub">Rain probability: <span id="rfRainProb">—</span></div>
+          </div>
+          <div class="ml-metrics">
+            <div class="metric-box"><div class="metric-label">Training Samples</div><div class="metric-val" id="rfSamples">—</div></div>
+          </div>
+          <div class="feat-importance">
+            <div class="coeff-title">Feature Importances</div>
+            <div id="rfImportances" class="importance-list">—</div>
+          </div>
+          <div class="condition-proba">
+            <div class="coeff-title">Class Probabilities</div>
+            <div id="rfProbabilities" class="proba-list">—</div>
+          </div>
+          <button class="ml-btn" onclick="runMLClassify()">▶ Re-train & Classify</button>
+        </div>
+      </div>
+
+      <!-- Regression Chart -->
+      <div class="chart-card glass" style="margin-top:1.5rem">
+        <div class="chart-header">
+          <span class="chart-title">Linear Regression — Actual vs Predicted Temperature</span>
+          <span class="chart-badge">scikit-learn</span>
+        </div>
+        <canvas id="lrChart" height="80"></canvas>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- FORECAST SECTION                                   -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="section" id="section-forecast">
+      <div class="backend-badge glass-dark">
+        <span class="bb-dot"></span>
+        <span>7-day forecast fetched server-side from Open-Meteo — cached 30 min in SQLite</span>
+        <span class="bb-source">GET /api/forecast?city=…</span>
+      </div>
+      <div class="forecast-grid" id="forecastGrid">
+        <div class="loading-msg">Loading forecast from backend…</div>
+      </div>
+      <div class="chart-card glass" style="margin-top:1.5rem">
+        <div class="chart-header">
+          <span class="chart-title">7-Day Temperature Range</span>
+          <span class="chart-badge">Open-Meteo via Flask</span>
+        </div>
+        <canvas id="forecastChart" height="80"></canvas>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- HEALTH ADVISORY SECTION                            -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="section" id="section-health">
+      <div class="health-grid">
+        <div class="health-card glass">
+          <div class="health-title">🌡️ Heat Index</div>
+          <div class="health-val" id="heatIndex">—</div>
+          <div class="health-msg" id="heatMsg">—</div>
+        </div>
+        <div class="health-card glass">
+          <div class="health-title">💧 Hydration Risk</div>
+          <div class="health-val" id="hydrationLevel">—</div>
+          <div class="health-msg" id="hydrationMsg">—</div>
+        </div>
+        <div class="health-card glass">
+          <div class="health-title">☀️ UV Exposure</div>
+          <div class="health-val" id="uvLevel">—</div>
+          <div class="health-msg" id="uvMsg">—</div>
+        </div>
+        <div class="health-card glass">
+          <div class="health-title">💨 Wind Chill</div>
+          <div class="health-val" id="windChillLevel">—</div>
+          <div class="health-msg" id="windChillMsg">—</div>
+        </div>
+      </div>
+      <div class="wellness-card glass">
+        <div class="wellness-title">Overall Wellness Index (0–100)</div>
+        <div class="wellness-bar-wrap">
+          <div class="wellness-bar" id="wellnessBar" style="width:0%"></div>
+        </div>
+        <div class="wellness-score" id="wellnessScore">—</div>
+        <div class="wellness-tips" id="wellnessTips"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- ANOMALY SECTION                                    -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="section" id="section-anomaly">
+      <div class="backend-badge glass-dark">
+        <span class="bb-dot"></span>
+        <span>Z-Score anomaly detection (scipy.stats) on real DB readings</span>
+        <span class="bb-source">GET /api/ml/anomalies?city=…</span>
+      </div>
+      <div class="anomaly-stats-row">
+        <div class="anom-stat glass-dark"><div class="as-val" id="anomTotal">—</div><div class="as-lbl">Readings Analyzed</div></div>
+        <div class="anom-stat glass-dark"><div class="as-val" id="anomFound">—</div><div class="as-lbl">Anomalies Found</div></div>
+        <div class="anom-stat glass-dark"><div class="as-val" id="anomTempMean">—</div><div class="as-lbl">Temp Mean (°C)</div></div>
+        <div class="anom-stat glass-dark"><div class="as-val" id="anomTempStd">—</div><div class="as-lbl">Temp Std Dev</div></div>
+        <div class="anom-stat glass-dark"><div class="as-val" id="anomThreshold">2.5σ</div><div class="as-lbl">Z-Score Threshold</div></div>
+      </div>
+      <div class="anomaly-list glass" id="anomalyList">
+        <div class="loading-msg">Loading anomaly data from backend…</div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- ALERTS SECTION                                     -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="section" id="section-alerts">
+      <div class="threshold-panel glass-dark" style="padding:1rem;margin-bottom:1.2rem;display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap">
+        <span style="font-weight:700;font-size:0.85rem">⚙️ Custom Alert Thresholds:</span>
+        <label style="font-size:0.78rem">Max Temp (°C): <input type="number" id="threshTemp" value="38" style="width:60px;background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:3px 6px;border-radius:4px" onchange="refreshAll()"></label>
+        <label style="font-size:0.78rem">Max Wind (km/h): <input type="number" id="threshWind" value="50" style="width:60px;background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:3px 6px;border-radius:4px" onchange="refreshAll()"></label>
+        <label style="font-size:0.78rem">Max Humidity (%): <input type="number" id="threshHum" value="85" style="width:60px;background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:3px 6px;border-radius:4px" onchange="refreshAll()"></label>
+      </div>
+      <div class="alerts-list" id="alertsList">
+        <div class="loading-msg">Generating alerts from live data…</div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- DATABASE SECTION                                   -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="section" id="section-db">
+      <div class="backend-badge glass-dark">
+        <span class="bb-dot"></span>
+        <span>Live view of SQLite weather_readings table via /api/weather/history</span>
+        <button class="export-btn" onclick="exportDatabaseCSV()" title="Download historical readings as CSV">📥 Export CSV</button>
+        <span class="bb-source">SQLAlchemy ORM · weather.db</span>
+      </div>
+      <div class="db-stats-row">
+        <div class="db-stat glass-dark"><div class="ds-val" id="dbTotal">—</div><div class="ds-lbl">Total Readings</div></div>
+        <div class="db-stat glass-dark"><div class="ds-val" id="dbCity">—</div><div class="ds-lbl">Selected City</div></div>
+        <div class="db-stat glass-dark"><div class="ds-val" id="dbWindow">24h</div><div class="ds-lbl">Time Window</div></div>
+      </div>
+      <div class="db-table-wrap glass">
+        <table class="db-table" id="dbTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Timestamp</th><th>Temp °C</th>
+              <th>Humidity %</th><th>Pressure hPa</th>
+              <th>Wind km/h</th><th>Rain mm</th><th>UV</th><th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="dbTableBody">
+            <tr><td colspan="9" class="loading-msg">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
