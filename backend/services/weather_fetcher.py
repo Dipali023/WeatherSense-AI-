@@ -33,54 +33,71 @@ FORECAST_PARAMS = (
 def fetch_current_weather(city_key: str) -> dict:
     """
     Call Open-Meteo /forecast for current conditions, store in DB, return dict.
-    This is a real HTTP GET to a real meteorological API.
+    If Open-Meteo fails (e.g. rate limit), fallback to latest stored DB reading.
     """
     city = CITIES.get(city_key)
     if not city:
         raise ValueError(f"Unknown city key: {city_key!r}")
 
-    resp = requests.get(
-        f"{OPEN_METEO_BASE}/forecast",
-        params={
-            'latitude':  city['lat'],
-            'longitude': city['lon'],
-            'current':   CURRENT_PARAMS,
-            'timezone':  'Asia/Kolkata',
-        },
-        timeout=10,
-    )
-    resp.raise_for_status()
-    curr = resp.json().get('current', {})
-
-    reading = WeatherReading(
-        city          = city_key,
-        timestamp     = datetime.now(timezone.utc).replace(tzinfo=None),
-        temperature   = curr.get('temperature_2m'),
-        humidity      = curr.get('relative_humidity_2m'),
-        pressure      = curr.get('surface_pressure'),
-        wind_speed    = curr.get('wind_speed_10m'),
-        wind_direction= curr.get('wind_direction_10m'),
-        rain          = curr.get('precipitation', 0.0),
-        uv_index      = curr.get('uv_index', 0.0),
-        weather_code  = curr.get('weather_code'),
-        apparent_temp = curr.get('apparent_temperature'),
-        source        = 'open_meteo',
-    )
-
-    db = SessionLocal()
     try:
-        db.add(reading)
-        db.commit()
-        db.refresh(reading)
-        result = reading.to_dict()
-    finally:
-        db.close()
+        resp = requests.get(
+            f"{OPEN_METEO_BASE}/forecast",
+            params={
+                'latitude':  city['lat'],
+                'longitude': city['lon'],
+                'current':   CURRENT_PARAMS,
+                'timezone':  'Asia/Kolkata',
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        curr = resp.json().get('current', {})
 
-    logger.info(
-        f"[{city_key}] Fetched: {reading.temperature}°C  "
-        f"Humidity:{reading.humidity}%  Wind:{reading.wind_speed}km/h"
-    )
-    return result
+        reading = WeatherReading(
+            city          = city_key,
+            timestamp     = datetime.now(timezone.utc).replace(tzinfo=None),
+            temperature   = curr.get('temperature_2m'),
+            humidity      = curr.get('relative_humidity_2m'),
+            pressure      = curr.get('surface_pressure'),
+            wind_speed    = curr.get('wind_speed_10m'),
+            wind_direction= curr.get('wind_direction_10m'),
+            rain          = curr.get('precipitation', 0.0),
+            uv_index      = curr.get('uv_index', 0.0),
+            weather_code  = curr.get('weather_code'),
+            apparent_temp = curr.get('apparent_temperature'),
+            source        = 'open_meteo',
+        )
+
+        db = SessionLocal()
+        try:
+            db.add(reading)
+            db.commit()
+            db.refresh(reading)
+            result = reading.to_dict()
+        finally:
+            db.close()
+
+        logger.info(
+            f"[{city_key}] Fetched: {reading.temperature}°C  "
+            f"Humidity:{reading.humidity}%  Wind:{reading.wind_speed}km/h"
+        )
+        return result
+
+    except Exception as exc:
+        logger.warning(f"[{city_key}] Open-Meteo fetch failed ({exc}), serving latest DB reading…")
+        db = SessionLocal()
+        try:
+            latest = (
+                db.query(WeatherReading)
+                .filter_by(city=city_key)
+                .order_by(WeatherReading.timestamp.desc())
+                .first()
+            )
+            if latest:
+                return latest.to_dict()
+        finally:
+            db.close()
+        raise exc
 
 
 def fetch_weather_by_coords(lat: float, lon: float) -> dict:
