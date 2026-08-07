@@ -174,13 +174,15 @@
         </div>
       </div>
 
-      <!-- Hourly Timeline Chart -->
-      <div class="chart-card glass" style="margin-top:1rem">
-        <div class="chart-header">
-          <span class="chart-title">⏱️ 24-Hour Hourly Temperature & Rain Probability Timeline</span>
-          <span class="chart-badge">Open-Meteo Hourly API</span>
+      <!-- Hourly Timeline Chart — full width -->
+      <div class="charts-row charts-row-full" style="margin-top:0.9rem">
+        <div class="chart-card glass" style="grid-column: 1 / -1">
+          <div class="chart-header">
+            <span class="chart-title">⏱️ 24-Hour Hourly Forecast — Temperature &amp; Rain Probability</span>
+            <span class="chart-badge" style="background:rgba(163,112,255,0.12);color:#a370ff;border-color:rgba(163,112,255,0.3)">Open-Meteo Hourly API</span>
+          </div>
+          <canvas id="hourlyChart" height="90"></canvas>
         </div>
-        <canvas id="hourlyChart" height="90"></canvas>
       </div>
     </section>
 

@@ -14,7 +14,10 @@
    ===================================================== */
 'use strict';
 
-const API = '';          // Flask serves frontend on same origin
+// Auto-detect: local dev uses Flask at localhost:5000, GitHub Pages uses Render
+const API = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? ''   // Flask serves frontend + API on same origin locally
+  : 'https://weathersense-ai-0vor.onrender.com'; // Render backend URL
 const REFRESH_MS = 30000; // Auto-refresh every 30 seconds
 
 let currentCity = 'nagpur';
@@ -257,17 +260,61 @@ async function loadHourlyChart() {
       data: {
         labels: data.times,
         datasets: [
-          { label: 'Temperature °C', data: data.temperatures, borderColor: '#00d4ff', backgroundColor: '#00d4ff18', fill: true, tension: 0.4, yAxisID: 'y' },
-          { label: 'Rain Probability %', data: data.rain_probability, borderColor: '#a370ff', backgroundColor: '#a370ff33', type: 'bar', borderRadius: 3, yAxisID: 'y1' }
+          {
+            label: 'Temperature °C',
+            data: data.temperatures,
+            borderColor: '#00d4ff',
+            backgroundColor: 'rgba(0,212,255,0.08)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            borderWidth: 2,
+            yAxisID: 'y'
+          },
+          {
+            label: 'Rain Probability %',
+            data: data.rain_probability,
+            borderColor: '#a370ff',
+            backgroundColor: 'rgba(163,112,255,0.12)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            borderWidth: 1.5,
+            borderDash: [4, 3],
+            yAxisID: 'y1'
+          }
         ]
       },
       options: {
-        animation: false, responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: '#8fa0c2', font: { size: 10 } } } },
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#8fa0c2', font: { size: 10 }, boxWidth: 12, padding: 12 } },
+          tooltip: { backgroundColor: 'rgba(9,9,11,0.9)', borderColor: 'rgba(255,255,255,0.08)', borderWidth: 1, titleColor: '#f0f3fa', bodyColor: '#8fa0c2', padding: 8 }
+        },
         scales: {
-          x: { ticks: { color: '#415175', font: { size: 10 }, maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.03)' } },
-          y: { position: 'left', title: { display: true, text: '°C', color: '#00d4ff', font: { size: 10 } }, ticks: { color: '#415175', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
-          y1: { position: 'right', title: { display: true, text: 'Rain %', color: '#a370ff', font: { size: 10 } }, ticks: { color: '#415175', font: { size: 10 } }, grid: { drawOnChartArea: false } }
+          x: {
+            ticks: { color: '#415175', font: { size: 9 }, maxTicksLimit: 8, maxRotation: 0 },
+            grid: { color: 'rgba(255,255,255,0.03)' },
+            border: { display: false }
+          },
+          y: {
+            position: 'left',
+            ticks: { color: '#415175', font: { size: 9 }, padding: 4 },
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            border: { display: false }
+          },
+          y1: {
+            position: 'right',
+            min: 0, max: 100,
+            ticks: { color: '#415175', font: { size: 9 }, padding: 4 },
+            grid: { drawOnChartArea: false },
+            border: { display: false }
+          }
         }
       }
     });
