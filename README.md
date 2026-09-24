@@ -2,7 +2,7 @@
 
 **WeatherSense AI** is an intelligent, real-time weather analytics dashboard and predictive engine. It combines real-world REST API weather data with simulated edge IoT sensors, running client-side machine learning algorithms entirely in the browser using pure, vanilla JavaScript.
 
-🌐 **Live Demo:** [View Deployed Project](https://dipali023.github.io/Weather-prediction-system-/)
+🌐 **Live Demo:** [View Deployed Project](https://dipali023.github.io/WeatherSense-AI-/)
 
 ---
 
@@ -48,8 +48,8 @@ Ensure you have [Node.js](https://nodejs.org/) installed.
 ### Steps:
 1. Clone the repository:
    ```bash
-   git clone https://github.com/dipali023/Weather-prediction-system-.git
-   cd Weather-prediction-system-
+   git clone https://github.com/dipali023/WeatherSense-AI-.git
+   cd WeatherSense-AI-
    ```
 2. Start the local server:
    ```bash
