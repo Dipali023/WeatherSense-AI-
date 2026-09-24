@@ -153,20 +153,76 @@ function uvLabel(v) {
   return 'Extreme';
 }
 
+// ── Direct Open-Meteo Client Fallback ─────────────────────────────────────────
+const CITY_COORDS = {
+  nagpur:     { name: 'Nagpur, Maharashtra', lat: 21.15, lon: 79.09 },
+  mumbai:     { name: 'Mumbai, Maharashtra', lat: 19.07, lon: 72.87 },
+  pune:       { name: 'Pune, Maharashtra', lat: 18.52, lon: 73.85 },
+  delhi:      { name: 'Delhi, India', lat: 28.61, lon: 77.20 },
+  bangalore:  { name: 'Bengaluru, Karnataka', lat: 12.97, lon: 77.59 },
+  chennai:    { name: 'Chennai, Tamil Nadu', lat: 13.08, lon: 80.27 },
+  kolkata:    { name: 'Kolkata, West Bengal', lat: 22.57, lon: 88.36 },
+  hyderabad:  { name: 'Hyderabad, Telangana', lat: 17.38, lon: 78.48 },
+  ahmedabad:  { name: 'Ahmedabad, Gujarat', lat: 23.02, lon: 72.57 },
+  jaipur:     { name: 'Jaipur, Rajasthan', lat: 26.91, lon: 75.78 },
+  lucknow:    { name: 'Lucknow, Uttar Pradesh', lat: 26.84, lon: 80.94 },
+  patna:      { name: 'Patna, Bihar', lat: 25.59, lon: 85.13 },
+  guwahati:   { name: 'Guwahati, Assam', lat: 26.14, lon: 91.73 },
+  srinagar:   { name: 'Srinagar, J&K', lat: 34.08, lon: 74.79 },
+  chandigarh: { name: 'Chandigarh, India', lat: 30.73, lon: 76.78 },
+};
+
+async function fetchDirectOpenMeteo(cityKey) {
+  const coord = CITY_COORDS[cityKey] || CITY_COORDS['nagpur'];
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${coord.lat}&longitude=${coord.lon}&past_days=1&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,surface_pressure,wind_speed_10m&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,surface_pressure,wind_speed_10m,wind_direction_10m,uv_index&timezone=Asia%2FKolkata`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('Open-Meteo direct API failed');
+  return resp.json();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. DASHBOARD — fetch current weather + history
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadDashboard() {
+  let data = null;
   try {
-    // Fetch current weather (also stores to DB)
-    const data = await apiFetch(`/api/weather/current?city=${currentCity}`);
-
-    // Update status dots
+    data = await apiFetch(`/api/weather/current?city=${currentCity}`);
     setDot('dot-backend', true);
     setDot('dot-api', true);
     $('connectionDot').classList.add('online');
     setText('connectionText', 'Backend Connected');
+  } catch (err) {
+    console.warn('Backend fetch failed (starting up?), using direct Open-Meteo fallback:', err);
+    setDot('dot-backend', false);
+    setDot('dot-api', true);
+    $('connectionDot').classList.remove('online');
+    setText('connectionText', 'Connecting to Render Backend…');
+    
+    try {
+      const om = await fetchDirectOpenMeteo(currentCity);
+      const curr = om.current || {};
+      const coord = CITY_COORDS[currentCity] || CITY_COORDS['nagpur'];
+      data = {
+        city: currentCity,
+        city_name: coord.name,
+        temperature: curr.temperature_2m,
+        apparent_temp: curr.apparent_temperature,
+        humidity: curr.relative_humidity_2m,
+        wind_speed: curr.wind_speed_10m,
+        wind_direction: curr.wind_direction_10m,
+        pressure: curr.surface_pressure,
+        rain: curr.precipitation || 0,
+        uv_index: curr.uv_index || 0,
+        weather_code: curr.weather_code || 1,
+        timestamp: new Date().toISOString(),
+        _openMeteoRaw: om,
+      };
+    } catch (e) {
+      console.error('All fetch attempts failed:', e);
+    }
+  }
 
+  if (data) {
     // Primary cards
     setText('mainTemp',   data.temperature !== null ? data.temperature + '°C' : '—');
     setText('feelsLike',  data.apparent_temp !== null ? data.apparent_temp + '°C' : '—');
@@ -181,23 +237,16 @@ async function loadDashboard() {
     // Info row
     setText('cityName',   data.city_name ?? '—');
     setText('wmoCode',    data.weather_code ?? '—');
-    const fetchTime = data.timestamp ? new Date(data.timestamp + 'Z').toLocaleTimeString('en-IN') : '—';
+    const fetchTime = data.timestamp ? new Date(data.timestamp.endsWith('Z') ? data.timestamp : data.timestamp + 'Z').toLocaleTimeString('en-IN') : '—';
     setText('lastFetch', fetchTime);
 
-    // Health section update
     updateHealth(data);
     updateAlerts(data);
-
-    // Fetch history & hourly for charts
-    await loadHistoryCharts();
-    await loadHourlyChart();
-
-  } catch (err) {
-    console.error('Dashboard load failed:', err);
-    setDot('dot-backend', false);
-    $('connectionDot').classList.remove('online');
-    setText('connectionText', 'Backend Offline');
   }
+
+  // Fetch history & hourly for charts with guaranteed rendering
+  await loadHistoryCharts(data?._openMeteoRaw);
+  await loadHourlyChart(data?._openMeteoRaw);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -246,81 +295,89 @@ async function detectGPSLocation() {
 // ─────────────────────────────────────────────────────────────────────────────
 // 1C. 24-HOUR HOURLY TIMELINE CHART
 // ─────────────────────────────────────────────────────────────────────────────
-async function loadHourlyChart() {
+async function loadHourlyChart(fallbackRaw) {
+  let times = [], temps = [], rainProb = [];
   try {
     const data = await apiFetch(`/api/weather/hourly?city=${currentCity}`);
-    if (!data.times || !data.temperatures) return;
-
-    if (charts.hourlyChart) charts.hourlyChart.destroy();
-    const ctx = $('hourlyChart');
-    if (!ctx) return;
-
-    charts.hourlyChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: data.times,
-        datasets: [
-          {
-            label: 'Temperature °C',
-            data: data.temperatures,
-            borderColor: '#00d4ff',
-            backgroundColor: 'rgba(0,212,255,0.08)',
-            fill: true,
-            tension: 0.4,
-            pointRadius: 0,
-            pointHoverRadius: 4,
-            borderWidth: 2,
-            yAxisID: 'y'
-          },
-          {
-            label: 'Rain Probability %',
-            data: data.rain_probability,
-            borderColor: '#a370ff',
-            backgroundColor: 'rgba(163,112,255,0.12)',
-            fill: true,
-            tension: 0.4,
-            pointRadius: 0,
-            pointHoverRadius: 4,
-            borderWidth: 1.5,
-            borderDash: [4, 3],
-            yAxisID: 'y1'
-          }
-        ]
-      },
-      options: {
-        animation: false,
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { labels: { color: '#8fa0c2', font: { size: 10 }, boxWidth: 12, padding: 12 } },
-          tooltip: { backgroundColor: 'rgba(9,9,11,0.9)', borderColor: 'rgba(255,255,255,0.08)', borderWidth: 1, titleColor: '#f0f3fa', bodyColor: '#8fa0c2', padding: 8 }
-        },
-        scales: {
-          x: {
-            ticks: { color: '#415175', font: { size: 9 }, maxTicksLimit: 8, maxRotation: 0 },
-            grid: { color: 'rgba(255,255,255,0.03)' },
-            border: { display: false }
-          },
-          y: {
-            position: 'left',
-            ticks: { color: '#415175', font: { size: 9 }, padding: 4 },
-            grid: { color: 'rgba(255,255,255,0.05)' },
-            border: { display: false }
-          },
-          y1: {
-            position: 'right',
-            min: 0, max: 100,
-            ticks: { color: '#415175', font: { size: 9 }, padding: 4 },
-            grid: { drawOnChartArea: false },
-            border: { display: false }
-          }
-        }
-      }
-    });
+    if (data.times && data.temperatures && data.times.length > 0) {
+      times = data.times;
+      temps = data.temperatures;
+      rainProb = data.rain_probability || [];
+    }
   } catch (e) {
-    console.error('Hourly chart error:', e);
+    console.warn('Hourly API fetch failed, trying direct Open-Meteo:', e);
   }
+
+  if (times.length === 0) {
+    try {
+      const raw = fallbackRaw || (await fetchDirectOpenMeteo(currentCity));
+      const hourly = raw.hourly || {};
+      const fullTimes = hourly.time || [];
+      const tList = hourly.temperature_2m || [];
+      const rList = hourly.precipitation_probability || [];
+      const start = Math.max(0, fullTimes.length - 24);
+      times = fullTimes.slice(start).map(t => t.split('T')[1]?.slice(0,5) || t);
+      temps = tList.slice(start);
+      rainProb = rList.slice(start);
+    } catch (e) {
+      console.error('Hourly fallback chart error:', e);
+    }
+  }
+
+  if (times.length === 0) return;
+
+  if (charts.hourlyChart) charts.hourlyChart.destroy();
+  const ctx = $('hourlyChart');
+  if (!ctx) return;
+
+  charts.hourlyChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: times,
+      datasets: [
+        {
+          label: 'Temperature °C',
+          data: temps,
+          borderColor: '#00d4ff',
+          backgroundColor: 'rgba(0,212,255,0.08)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          borderWidth: 2,
+          yAxisID: 'y'
+        },
+        {
+          label: 'Rain Probability %',
+          data: rainProb,
+          borderColor: '#a370ff',
+          backgroundColor: 'rgba(163,112,255,0.12)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          borderWidth: 1.5,
+          borderDash: [4, 3],
+          yAxisID: 'y1'
+        }
+      ]
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#8fa0c2', font: { size: 10 }, boxWidth: 12, padding: 12 } },
+        tooltip: { backgroundColor: 'rgba(9,9,11,0.9)', borderColor: 'rgba(255,255,255,0.08)', borderWidth: 1, titleColor: '#f0f3fa', bodyColor: '#8fa0c2', padding: 8 }
+      },
+      scales: {
+        x: { ticks: { color: '#415175', font: { size: 9 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { color: 'rgba(255,255,255,0.03)' }, border: { display: false } },
+        y: { position: 'left', ticks: { color: '#415175', font: { size: 9 }, padding: 4 }, grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false } },
+        y1: { position: 'right', min: 0, max: 100, ticks: { color: '#415175', font: { size: 9 }, padding: 4 }, grid: { drawOnChartArea: false }, border: { display: false } }
+      }
+    }
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -333,22 +390,45 @@ function exportDatabaseCSV() {
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. HISTORY CHARTS — from SQLite DB
 // ─────────────────────────────────────────────────────────────────────────────
-async function loadHistoryCharts() {
+async function loadHistoryCharts(fallbackRaw) {
+  let labels = [], temps = [], humids = [], count = 0;
   try {
     const hist = await apiFetch(`/api/weather/history?city=${currentCity}&hours=24`);
     const readings = hist.readings || [];
+    if (readings.length >= 2) {
+      count = readings.length;
+      labels = readings.map(r => {
+        const d = new Date(r.timestamp + (r.timestamp.endsWith('Z') ? '' : 'Z'));
+        return d.getHours() + ':' + String(d.getMinutes()).padStart(2,'0');
+      });
+      temps  = readings.map(r => r.temperature);
+      humids = readings.map(r => r.humidity);
+    }
+  } catch (err) {
+    console.warn('History API failed, checking fallback data:', err);
+  }
 
-    setText('dbCount',  readings.length);
-    setText('dbCount2', readings.length);
+  if (labels.length < 2) {
+    try {
+      const raw = fallbackRaw || (await fetchDirectOpenMeteo(currentCity));
+      const hourly = raw.hourly || {};
+      const times = hourly.time || [];
+      const tList = hourly.temperature_2m || [];
+      const hList = hourly.relative_humidity_2m || [];
+      const len = Math.min(times.length, 24);
+      labels = times.slice(0, len).map(t => t.split('T')[1]?.slice(0,5) || t);
+      temps  = tList.slice(0, len);
+      humids = hList.slice(0, len);
+      count  = len;
+    } catch (e) {
+      console.error('Fallback history render error:', e);
+    }
+  }
 
-    const labels = readings.map(r => {
-      const d = new Date(r.timestamp + 'Z');
-      return d.getHours() + ':' + String(d.getMinutes()).padStart(2,'0');
-    });
-    const temps  = readings.map(r => r.temperature);
-    const humids = readings.map(r => r.humidity);
+  setText('dbCount',  count);
+  setText('dbCount2', count);
 
-    // Temperature chart
+  if (labels.length > 0) {
     const tc = getOrCreate('tempHistChart', CHART_OPTS.line('Temperature °C', '#ff6b6b'));
     if (tc) {
       tc.data.labels          = labels;
@@ -356,18 +436,15 @@ async function loadHistoryCharts() {
       tc.update();
     }
 
-    // Humidity chart
     const hc = getOrCreate('humHistChart', CHART_OPTS.line('Humidity %', '#598cff'));
     if (hc) {
       hc.data.labels          = labels;
       hc.data.datasets[0].data = humids;
       hc.update();
     }
-
-  } catch (err) {
-    console.error('History charts failed:', err);
   }
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. ML — Linear Regression
@@ -716,38 +793,38 @@ async function init() {
 
   const loadMsg = $('aiLoadMsg');
 
-  // Check backend health
+  // Load dashboard & charts immediately (resilient fallback built-in)
+  if (loadMsg) loadMsg.textContent = 'Loading weather intelligence & charts…';
+  await loadDashboard();
+
+  // Non-blocking backend health check
   try {
-    if (loadMsg) loadMsg.textContent = 'Checking Flask backend…';
+    if (loadMsg) loadMsg.textContent = 'Connecting to Python Flask backend…';
     await apiFetch('/api/health');
     setDot('dot-backend', true);
-
-    if (loadMsg) loadMsg.textContent = 'Fetching live weather from Open-Meteo API…';
-    await loadDashboard();
-
-    if (loadMsg) loadMsg.textContent = 'Warming up scikit-learn models…';
     setDot('dot-ml', true);
-
-    if (loadMsg) loadMsg.textContent = 'Loading SQLite database…';
     setDot('dot-db', true);
-
   } catch (err) {
-    console.error('Init error:', err);
+    console.warn('Backend waking up in background:', err);
     setDot('dot-backend', false);
-    if (loadMsg) loadMsg.textContent = '⚠️ Backend offline. Start: python backend/app.py';
-    // Still hide overlay after 3s so user can see the message
-    setTimeout(() => {
-      const overlay = $('aiOverlay');
-      if (overlay) overlay.classList.add('hidden');
-    }, 3000);
-    return;
+    // Poll backend health in background until Render finishes waking up!
+    const pollTimer = setInterval(async () => {
+      try {
+        await apiFetch('/api/health');
+        clearInterval(pollTimer);
+        setDot('dot-backend', true);
+        setDot('dot-ml', true);
+        setDot('dot-db', true);
+        await loadDashboard();
+      } catch (e) {}
+    }, 5000);
   }
 
-  // Hide loading overlay
+  // Hide loading overlay smoothly
   setTimeout(() => {
     const overlay = $('aiOverlay');
     if (overlay) overlay.classList.add('hidden');
-  }, 1200);
+  }, 1000);
 
   // Auto-refresh every 30 seconds
   if (refreshTimer) clearInterval(refreshTimer);
@@ -755,3 +832,4 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
