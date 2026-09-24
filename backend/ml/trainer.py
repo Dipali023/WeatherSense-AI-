@@ -55,6 +55,7 @@ def wmo_to_label(code) -> str:
 
 def _load_df(city: str, hours: int = 72) -> pd.DataFrame:
     """Load recent weather readings from SQLite into a pandas DataFrame."""
+    from services.weather_fetcher import seed_city_history
     db = SessionLocal()
     try:
         cutoff = datetime.utcnow() - timedelta(hours=hours)
@@ -65,6 +66,17 @@ def _load_df(city: str, hours: int = 72) -> pd.DataFrame:
             .order_by(WeatherReading.timestamp.asc())
             .all()
         )
+        if len(rows) < 5:
+            db.close()
+            seed_city_history(city)
+            db = SessionLocal()
+            rows = (
+                db.query(WeatherReading)
+                .filter(WeatherReading.city == city)
+                .filter(WeatherReading.timestamp >= cutoff)
+                .order_by(WeatherReading.timestamp.asc())
+                .all()
+            )
         if not rows:
             return pd.DataFrame()
         df = pd.DataFrame([r.to_dict() for r in rows])
@@ -74,6 +86,7 @@ def _load_df(city: str, hours: int = 72) -> pd.DataFrame:
         return df
     finally:
         db.close()
+
 
 
 # ─── Linear Regression ────────────────────────────────────────────────────────

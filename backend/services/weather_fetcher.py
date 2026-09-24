@@ -319,3 +319,76 @@ def fetch_all_cities():
             fetch_current_weather(city_key)
         except Exception as exc:
             logger.error(f"Scheduler: failed to fetch {city_key}: {exc}")
+
+
+def seed_city_history(city_key: str):
+    """Seed last 48h of hourly historical weather data for a city if DB has < 5 readings."""
+    db = SessionLocal()
+    try:
+        count = db.query(WeatherReading).filter_by(city=city_key).count()
+        if count >= 5:
+            return
+    finally:
+        db.close()
+
+    city = CITIES.get(city_key)
+    if not city:
+        return
+
+    try:
+        resp = requests.get(
+            f"{OPEN_METEO_BASE}/forecast",
+            params={
+                'latitude':  city['lat'],
+                'longitude': city['lon'],
+                'past_days': 2,
+                'hourly':    CURRENT_PARAMS,
+                'timezone':  'Asia/Kolkata',
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        hourly = resp.json().get('hourly', {})
+        times     = hourly.get('time', [])
+        temps     = hourly.get('temperature_2m', [])
+        hums      = hourly.get('relative_humidity_2m', [])
+        press     = hourly.get('surface_pressure', [])
+        winds     = hourly.get('wind_speed_10m', [])
+        wind_dirs = hourly.get('wind_direction_10m', [])
+        rains     = hourly.get('precipitation', [])
+        uvs       = hourly.get('uv_index', [])
+        codes     = hourly.get('weather_code', [])
+        app_temps = hourly.get('apparent_temperature', [])
+
+        db = SessionLocal()
+        try:
+            readings = []
+            for i, t_str in enumerate(times):
+                try:
+                    dt = datetime.fromisoformat(t_str)
+                except Exception:
+                    continue
+                reading = WeatherReading(
+                    city          = city_key,
+                    timestamp     = dt,
+                    temperature   = temps[i]     if i < len(temps)     else 25.0,
+                    humidity      = hums[i]      if i < len(hums)      else 60.0,
+                    pressure      = press[i]     if i < len(press)     else 1012.0,
+                    wind_speed    = winds[i]     if i < len(winds)     else 10.0,
+                    wind_direction= wind_dirs[i] if i < len(wind_dirs) else 180.0,
+                    rain          = rains[i]     if i < len(rains)     else 0.0,
+                    uv_index      = uvs[i]       if i < len(uvs)       else 3.0,
+                    weather_code  = codes[i]     if i < len(codes)     else 1,
+                    apparent_temp = app_temps[i] if i < len(app_temps) else 26.0,
+                    source        = 'open_meteo_history',
+                )
+                readings.append(reading)
+            if readings:
+                db.bulk_save_objects(readings)
+                db.commit()
+                logger.info(f"[{city_key}] Seeded {len(readings)} historical hourly readings.")
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning(f"[{city_key}] Historical seed failed ({exc}).")
+

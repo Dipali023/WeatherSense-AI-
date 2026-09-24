@@ -28,6 +28,7 @@ def detect_anomalies(city: str, hours: int = 24) -> dict:
     Loads recent readings from DB, computes Z-Score on temperature + humidity.
     Returns a list of flagged anomalous readings with their z-scores.
     """
+    from services.weather_fetcher import seed_city_history
     db = SessionLocal()
     try:
         cutoff = datetime.utcnow() - timedelta(hours=hours)
@@ -38,6 +39,17 @@ def detect_anomalies(city: str, hours: int = 24) -> dict:
             .order_by(WeatherReading.timestamp.asc())
             .all()
         )
+        if len(rows) < 5:
+            db.close()
+            seed_city_history(city)
+            db = SessionLocal()
+            rows = (
+                db.query(WeatherReading)
+                .filter(WeatherReading.city == city)
+                .filter(WeatherReading.timestamp >= cutoff)
+                .order_by(WeatherReading.timestamp.asc())
+                .all()
+            )
     finally:
         db.close()
 
@@ -48,6 +60,7 @@ def detect_anomalies(city: str, hours: int = 24) -> dict:
             'anomalies': [],
             'n_readings': len(rows),
         }
+
 
     temps  = np.array([r.temperature or 0 for r in rows], dtype=float)
     humids = np.array([r.humidity    or 0 for r in rows], dtype=float)

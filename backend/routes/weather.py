@@ -61,6 +61,7 @@ def history():
     city  = request.args.get('city',  'nagpur').lower().strip()
     hours = min(int(request.args.get('hours', 24)), 168)   # max 7 days
 
+    from services.weather_fetcher import seed_city_history
     db = SessionLocal()
     try:
         cutoff = datetime.utcnow() - timedelta(hours=hours)
@@ -68,6 +69,15 @@ def history():
         if city in CITIES:
             query = query.filter(WeatherReading.city == city)
         rows   = query.order_by(WeatherReading.timestamp.asc()).all()
+
+        if len(rows) < 5 and city in CITIES:
+            db.close()
+            seed_city_history(city)
+            db = SessionLocal()
+            query  = db.query(WeatherReading).filter(WeatherReading.timestamp >= cutoff)
+            if city in CITIES:
+                query = query.filter(WeatherReading.city == city)
+            rows   = query.order_by(WeatherReading.timestamp.asc()).all()
 
         city_name = CITIES[city]['name'] if city in CITIES else city
         return jsonify({
@@ -79,6 +89,7 @@ def history():
         })
     finally:
         db.close()
+
 
 
 @weather_bp.route('/export')
