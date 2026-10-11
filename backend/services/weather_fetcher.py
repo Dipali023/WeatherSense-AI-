@@ -8,8 +8,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
 import logging
+import math
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from config import OPEN_METEO_BASE, CITIES
 from database.models import WeatherReading, ForecastCache, SessionLocal
@@ -322,10 +323,16 @@ def fetch_all_cities():
 
 
 def seed_city_history(city_key: str):
-    """Seed last 48h of hourly historical weather data for a city if DB has < 5 readings."""
+    """Seed last 48h of hourly historical weather data for a city if DB has < 5 recent readings."""
+    cutoff = datetime.utcnow() - timedelta(hours=48)
     db = SessionLocal()
     try:
-        count = db.query(WeatherReading).filter_by(city=city_key).count()
+        count = (
+            db.query(WeatherReading)
+            .filter(WeatherReading.city == city_key)
+            .filter(WeatherReading.timestamp >= cutoff)
+            .count()
+        )
         if count >= 5:
             return
     finally:
@@ -345,7 +352,7 @@ def seed_city_history(city_key: str):
                 'hourly':    CURRENT_PARAMS,
                 'timezone':  'Asia/Kolkata',
             },
-            timeout=10,
+            timeout=15,
         )
         resp.raise_for_status()
         hourly = resp.json().get('hourly', {})
@@ -390,5 +397,36 @@ def seed_city_history(city_key: str):
         finally:
             db.close()
     except Exception as exc:
-        logger.warning(f"[{city_key}] Historical seed failed ({exc}).")
+        logger.warning(f"[{city_key}] Historical seed failed ({exc}). Generating baseline historical readings…")
+        # Fallback: create 24 synthetic historical readings for ML training
+        now = datetime.utcnow()
+        import random
+        base_temp = 28.0
+        db = SessionLocal()
+        try:
+            readings = []
+            for h in range(24, 0, -1):
+                dt = now - timedelta(hours=h)
+                temp = base_temp + 5.0 * math.sin((dt.hour - 8) * math.pi / 12) + random.uniform(-1, 1)
+                reading = WeatherReading(
+                    city          = city_key,
+                    timestamp     = dt,
+                    temperature   = round(temp, 1),
+                    humidity      = round(random.uniform(45, 75), 1),
+                    pressure      = round(random.uniform(1008, 1015), 1),
+                    wind_speed    = round(random.uniform(5, 18), 1),
+                    wind_direction= round(random.uniform(0, 360), 1),
+                    rain          = 0.0,
+                    uv_index      = round(max(0, 8 * math.sin((dt.hour - 6) * math.pi / 12)), 1),
+                    weather_code  = 1,
+                    apparent_temp = round(temp + 1.2, 1),
+                    source        = 'fallback_history',
+                )
+                readings.append(reading)
+            db.bulk_save_objects(readings)
+            db.commit()
+            logger.info(f"[{city_key}] Seeded {len(readings)} fallback hourly readings.")
+        finally:
+            db.close()
+
 

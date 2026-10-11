@@ -457,7 +457,7 @@ async function runMLPredict() {
 
     if (data.status === 'insufficient_data') {
       setText('lrStatus', 'Insufficient data');
-      setText('lrR2',      data.n_samples + ' readings');
+      setText('lrR2',      '—');
       setText('lrRMSE',    '—');
       setText('lrSamples', data.n_samples);
       setText('pred1h', '—'); setText('pred2h', '—'); setText('pred3h', '—');
@@ -496,11 +496,14 @@ async function buildLRChart(lrData) {
     const readings = hist.readings || [];
     if (readings.length < 2) return;
 
-    const labels  = readings.map((_, i) => i);
+    const labels  = readings.map(r => {
+      const d = new Date(r.timestamp + (r.timestamp.endsWith('Z') ? '' : 'Z'));
+      return isNaN(d.getTime()) ? '' : d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+    });
     const actuals  = readings.map(r => r.temperature);
     const slope    = lrData.coefficients?.time_index ?? 0;
     const intercept= lrData.intercept ?? (actuals[0] || 25);
-    const preds    = labels.map(i => +(slope * i + intercept).toFixed(2));
+    const preds    = readings.map((_, i) => +(slope * i + intercept).toFixed(2));
 
     if (charts.lrChart) charts.lrChart.destroy();
     const ctx = $('lrChart');

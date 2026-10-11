@@ -80,7 +80,7 @@ def _load_df(city: str, hours: int = 72) -> pd.DataFrame:
         if not rows:
             return pd.DataFrame()
         df = pd.DataFrame([r.to_dict() for r in rows])
-        df['timestamp']   = pd.to_datetime(df['timestamp'])
+        df['timestamp']   = pd.to_datetime(df['timestamp'], format='mixed')
         df['time_index']  = np.arange(len(df))
         df['hour_of_day'] = df['timestamp'].dt.hour + df['timestamp'].dt.minute / 60.0
         return df
